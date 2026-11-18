@@ -18,7 +18,7 @@ RUN CGO_ENABLED=0 go build -o webhook -ldflags '-w -extldflags "-static"' .
 FROM python:3.12-alpine
 
 RUN apk add --no-cache ca-certificates build-base libffi-dev
-RUN pip install dns-lexicon
+RUN pip install dns-lexicon==3.21.1
 
 COPY --from=build /workspace/webhook /usr/local/bin/webhook
 

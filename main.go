@@ -26,8 +26,12 @@ type lexiconCommandOptions struct {
 	Provider    string
 	authUser    string
 	authToken   string
-	command     []string
 	usePassword bool
+	action      string // create or delete
+	zone        string
+	name        string
+	content     string
+	ttl         *int
 }
 type DNSLexiconDnsRecord struct {
 	RecordType string `json:"type"`
@@ -70,25 +74,36 @@ type DNSLexiconCredentials struct {
 // 	return cfg, nil
 // }
 
-func lexiconCmd(cmd lexiconCommandOptions) (bool, error) {
-
+// lexiconArgs builds the lexicon command line for one TXT record. Every value
+// is passed as a single --flag=value argument: an ACME key (and a credential)
+// can start with "-", and as a separate argument argparse would read it as a
+// flag ("argument --content: expected one argument").
+func lexiconArgs(cmd lexiconCommandOptions) []string {
 	pwParam := "--auth-token"
 	if cmd.usePassword {
 		pwParam = "--auth-password"
 	}
-
-	var cmdArgs = []string{
+	args := []string{
 		cmd.Provider,
-		"--auth-username", cmd.authUser,
-		pwParam, cmd.authToken,
+		"--auth-username=" + cmd.authUser,
+		pwParam + "=" + cmd.authToken,
+		cmd.action,
+		cmd.zone,
+		"TXT",
+		"--name=" + cmd.name,
+		"--content=" + cmd.content,
 	}
+	if cmd.ttl != nil {
+		args = append(args, "--ttl="+strconv.Itoa(*cmd.ttl))
+	}
+	return append(args, "--output=JSON")
+}
+
+func lexiconCmd(cmd lexiconCommandOptions) (bool, error) {
 	var err error
-	cmdArgs = append(cmdArgs, cmd.command...)
-	cmdArgs = append(cmdArgs,
-		"--output", "JSON",
-	)
-	fmt.Println("Lexicon command:", cmdArgs)
-	fmt.Println()
+	cmdArgs := lexiconArgs(cmd)
+	// Log the record, never the arguments: they carry the credentials.
+	fmt.Printf("Lexicon %s: provider=%s zone=%s name=%s\n", cmd.action, cmd.Provider, cmd.zone, cmd.name)
 	lexCmd := exec.Command(
 		"lexicon",
 		cmdArgs...,
@@ -210,9 +225,6 @@ func (c *DNSLexiconDNSProviderSolver) Present(ch *v1alpha1.ChallengeRequest) err
 		return err
 	}
 
-	// TODO: do something more useful with the decoded configuration
-	fmt.Printf("\n\nDecoded configuration %v\n", cfg)
-
 	// set a record in the DNS provider
 
 	success, err := lexiconCmd(lexiconCommandOptions{
@@ -220,22 +232,19 @@ func (c *DNSLexiconDNSProviderSolver) Present(ch *v1alpha1.ChallengeRequest) err
 		authToken:   cfg.APISecret,
 		Provider:    cfg.Provider,
 		usePassword: cfg.UsePassword,
-		command: []string{
-			"create",
-			ch.ResolvedZone,
-			"TXT",
-			"--name",
-			ch.ResolvedFQDN,
-			"--ttl",
-			strconv.Itoa(*cfg.TTL),
-			"--content=" + ch.Key,
-		},
+		action:      "create",
+		zone:        ch.ResolvedZone,
+		name:        ch.ResolvedFQDN,
+		content:     ch.Key,
+		ttl:         cfg.TTL,
 	})
-
-	if !success {
-		return fmt.Errorf("lexicon result returned false")
+	if err != nil {
+		return err
 	}
-	return err
+	if !success {
+		return fmt.Errorf("lexicon create returned false")
+	}
+	return nil
 }
 
 // CleanUp should delete the relevant TXT record from the DNS provider console.
@@ -254,22 +263,24 @@ func (c *DNSLexiconDNSProviderSolver) CleanUp(ch *v1alpha1.ChallengeRequest) err
 
 	// clears a record in the DNS provider
 
-	lexiconCmd(lexiconCommandOptions{
+	// Return a failure so cert-manager retries the cleanup instead of leaving
+	// the record behind.
+	success, err := lexiconCmd(lexiconCommandOptions{
 		authUser:    cfg.APIKey,
 		authToken:   cfg.APISecret,
 		Provider:    cfg.Provider,
 		usePassword: cfg.UsePassword,
-		command: []string{
-			"delete",
-			ch.ResolvedZone,
-			"TXT",
-			"--name",
-			ch.ResolvedFQDN,
-			"--content",
-			ch.Key,
-		},
+		action:      "delete",
+		zone:        ch.ResolvedZone,
+		name:        ch.ResolvedFQDN,
+		content:     ch.Key,
 	})
-
+	if err != nil {
+		return err
+	}
+	if !success {
+		return fmt.Errorf("lexicon delete returned false")
+	}
 	return nil
 }
 

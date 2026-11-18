@@ -1,3 +1,9 @@
+> Fork of lanefu/cert-manager-webhook-dns-lexicon used by the ranch cluster.
+> Changes: every lexicon value is passed as `--flag=value`, so an ACME key that
+> starts with `-` no longer breaks record cleanup; credentials are no longer
+> logged; a failed cleanup is returned to cert-manager so it retries; lexicon is
+> pinned. Images: `ghcr.io/pacepace/cert-manager-webhook-dns-lexicon`.
+
 # ACME webhook using the dns-lexicon python library
 
 The python library [lexicon](https://pypi.org/project/dns-lexicon/) supports many different
